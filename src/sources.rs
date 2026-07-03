@@ -31,11 +31,21 @@ pub fn git_repos_under(root: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(root) else { return out };
     for entry in entries.flatten() {
         let p = entry.path();
-        if p.is_dir() && p.join(".git").exists() {
+        if is_project_root(&p) {
             out.push(p);
         }
     }
     out
+}
+
+/// A real git repo root worth suggesting: an existing dir whose basename is not
+/// hidden and whose `.git` is a directory. Excludes hidden dirs (`.claude`,
+/// `.git`), and linked worktrees / submodules (their `.git` is a *file*).
+pub fn is_project_root(p: &Path) -> bool {
+    if !p.is_dir() || basename(p).starts_with('.') {
+        return false;
+    }
+    p.join(".git").is_dir()
 }
 
 fn finalize(raw: Vec<PathBuf>) -> Vec<Candidate> {
@@ -55,15 +65,20 @@ fn finalize(raw: Vec<PathBuf>) -> Vec<Candidate> {
 
 pub fn gather(cfg: &Config, zoxide_lines: &[String]) -> Vec<Candidate> {
     let mut raw: Vec<PathBuf> = Vec::new();
+    // Explicit paths bypass the repo-root filter — user opted in by naming them.
     for p in &cfg.paths {
         raw.push(expand_tilde(p));
     }
+    // roots + zoxide are noisy: keep only git repo roots.
     for r in &cfg.roots {
         raw.extend(git_repos_under(&expand_tilde(r)));
     }
     if cfg.use_zoxide {
         for l in zoxide_lines {
-            raw.push(PathBuf::from(l));
+            let p = PathBuf::from(l);
+            if is_project_root(&p) {
+                raw.push(p);
+            }
         }
     }
     finalize(raw)
@@ -100,6 +115,28 @@ mod tests {
         let got = gather(&cfg, &z);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].path, fs::canonicalize(&a).unwrap());
+    }
+
+    #[test]
+    fn is_project_root_rules() {
+        let tmp = tempfile::tempdir().unwrap();
+        // real repo root: .git is a dir
+        let repo = tmp.path().join("proj");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        assert!(is_project_root(&repo));
+        // hidden basename dropped
+        let hidden = tmp.path().join(".claude");
+        fs::create_dir_all(hidden.join(".git")).unwrap();
+        assert!(!is_project_root(&hidden));
+        // linked worktree: .git is a file, not a dir
+        let wt = tmp.path().join("wt");
+        fs::create_dir_all(&wt).unwrap();
+        fs::write(wt.join(".git"), "gitdir: /somewhere\n").unwrap();
+        assert!(!is_project_root(&wt));
+        // plain dir with no .git
+        let plain = tmp.path().join("plain");
+        fs::create_dir_all(&plain).unwrap();
+        assert!(!is_project_root(&plain));
     }
 
     #[test]

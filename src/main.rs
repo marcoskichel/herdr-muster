@@ -59,14 +59,14 @@ fn run() -> Result<(), String> {
     let result = (|| -> Result<(), String> {
         loop {
             let workspaces = client.list_workspaces().unwrap_or_default();
-            let agents = client.list_agents().unwrap_or_default();
+            let panes = client.list_panes().unwrap_or_default();
             let live: HashSet<String> =
                 workspaces.iter().map(|w| w.workspace_id.clone()).collect();
             if reg.reconcile(&live) {
                 dirty = true;
             }
             let bound = reg.live_map();
-            let rows: Vec<Row> = model::assemble(&bound, &workspaces, &agents, &dormant);
+            let rows: Vec<Row> = model::assemble(&bound, &workspaces, &panes, &dormant);
             if rows.is_empty() {
                 return Err(format!("no projects — edit {}", config_path().display()));
             }

@@ -30,8 +30,22 @@ a project, it records `canonical_project_dir → workspace_id` in a registry fil
 creation**, never derived from runtime pane state.
 
 On each run muster reconciles the registry against `herdr workspace list` and
-drops entries whose workspace no longer exists. A project is "open" iff its
-registry entry points to a live workspace.
+drops entries whose workspace no longer exists.
+
+### Amendment (2026-07-03): show workspaces muster did not create
+
+The registry-only view hid every workspace opened through herdr's own UI. To
+make muster a complete switcher, the OPEN group now lists **all live
+workspaces**. Identity resolves in priority order:
+
+1. **Registry binding** (muster-created) — authoritative, survives `cd`/splits.
+2. **Root-pane cwd** — for any live workspace with no binding, infer the
+   directory from its lowest-numbered (`:p1`) pane's `cwd` (via `pane list`).
+
+Inference is used **only for display/dedup of already-live workspaces**, never
+to bind identity or to decide whether to create a workspace. The registry
+still wins whenever present, so the drift problem below is unchanged for
+muster-created workspaces: a pane that `cd`s away keeps its stored project.
 
 ## Alternatives considered
 
@@ -45,10 +59,11 @@ registry entry points to a live workspace.
 
 - **Positive:** identity survives `cd` and splits; dedup is a map lookup, not
   an N+1 sweep of `pane list`; the registry is invisible to the herdr UI.
-- **Negative:** muster only knows about workspaces it created. A workspace made
-  through herdr's own UI is not in the registry, so muster may create a second
-  workspace for that directory. Accepted — muster is the intended entry point
-  for project workspaces.
+- **Negative:** a workspace made through herdr's own UI is not in the registry.
+  It is still shown as OPEN (via root-pane cwd), but if its root pane later
+  `cd`s away, its displayed project follows the pane — only muster-created
+  workspaces get `cd`-stable identity. Accepted: inference is best-effort for
+  foreign workspaces; the registry remains the source of truth for muster's own.
 - **Negative:** the registry can drift (workspace closed outside muster). Handled
   by pruning against `workspace list` every run.
 - State lives at `HERDR_PLUGIN_STATE_DIR/state.json`; losing it degrades
