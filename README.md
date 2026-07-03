@@ -2,20 +2,26 @@
 
 ![muster switcher](docs/screenshot.png)
 
-Agent-aware project switcher for [herdr](https://herdr.dev/). One keypress opens
-a fuzzy list: **open** projects show their agent state (blocked / working / done
-/ idle) with the blocked ones on top; **dormant** projects sit below, one press
-from a fresh workspace. A project always maps to one workspace — identity is
-stored when muster creates it, not guessed from a pane's directory.
+An agent-aware project switcher for [herdr](https://herdr.dev/).
+
+Hit one key and you get a fuzzy list of your projects. The ones already running
+show up first, tagged with what their agent is doing (blocked, working, done, or
+idle), and anything blocked floats to the top so you know where you're needed.
+Everything else sits below, one keypress away from a fresh workspace.
+
+Each project maps to exactly one workspace. muster remembers that pairing from
+the moment it creates the workspace, so it never guesses the project from
+whatever directory a pane happens to be sitting in, and you never end up with
+two workspaces for the same repo.
 
 ## Install
 
-Requires a Rust toolchain — `herdr plugin install` compiles the binary from
-source via the manifest build step.
+You'll need a Rust toolchain, since `herdr plugin install` compiles the binary
+from source when it sets the plugin up.
 
     herdr plugin install marcoskichel/herdr-muster
 
-### Local dev
+### Working on it locally
 
     cargo build --release
     herdr plugin link /path/to/herdr-muster   # e.g. ~/dev/herdr-muster
@@ -23,25 +29,27 @@ source via the manifest build step.
 ## Configure
 
     herdr plugin config-dir kichel.muster   # prints the config dir
-    # copy config.toml.example there as config.toml and edit
 
-- `paths`      — directories always listed
-- `roots`      — scanned one level deep for git repos
-- `use_zoxide` — merge `zoxide query -l` when zoxide is installed
+Copy `config.toml.example` into that directory as `config.toml` and edit it:
 
-## Keybind
+- `paths` lists directories you always want to see.
+- `roots` gets scanned one level deep for git repos.
+- `use_zoxide` folds in your `zoxide query -l` results when zoxide is installed.
 
-Add to your herdr `config.toml`, then `herdr server reload-config`:
+## Bind it to a key
+
+Add this to your herdr `config.toml`, then run `herdr server reload-config`:
 
     [[keys.command]]
-    key = "prefix+m"
-    type = "plugin_action"
-    command = "kichel.muster.open"
+    key = "prefix+space"
+    type = "shell"
+    command = "herdr plugin pane open --plugin kichel.muster --entrypoint picker"
 
-## Keys (in the switcher)
+## Keys inside the switcher
 
-- type to fuzzy filter · ↑/↓ move
-- Enter — jump (focus if open, muster a workspace if dormant)
-- Ctrl-N — force a new workspace for the selected dir
-- Ctrl-X — close the selected open workspace
-- Esc / Ctrl-C — cancel
+- Type to fuzzy filter, arrow keys to move.
+- Enter jumps to the project. If it's open it focuses that workspace, otherwise
+  it musters a new one.
+- Ctrl-N forces a brand new workspace for the selected directory.
+- Ctrl-X closes the selected open workspace.
+- Esc or Ctrl-C backs out.
