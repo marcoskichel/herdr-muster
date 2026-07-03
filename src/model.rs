@@ -33,7 +33,7 @@ impl AgentState {
     }
     pub fn glyph(&self) -> &'static str {
         match self {
-            AgentState::Blocked => "⛔",
+            AgentState::Blocked => "●",
             AgentState::Working => "◐",
             AgentState::Done => "✓",
             AgentState::Idle => "○",
