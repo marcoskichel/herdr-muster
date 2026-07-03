@@ -1,6 +1,7 @@
 mod config;
 mod herdr;
 mod model;
+mod picker;
 mod registry;
 mod sources;
 
