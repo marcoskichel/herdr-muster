@@ -1,4 +1,5 @@
 mod config;
+mod registry;
 mod sources;
 
 fn main() {
