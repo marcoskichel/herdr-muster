@@ -193,10 +193,10 @@ pub fn run(rows: &[Row]) -> std::io::Result<Outcome> {
 
         term.draw(|f| {
             let area = f.area();
-            let title_left = Line::from(vec![
-                Span::styled(" muster ", Style::default().fg(AMBER).add_modifier(Modifier::BOLD)),
-                Span::styled("— one terminal for the whole herd ", Style::default().fg(MUTED)),
-            ])
+            let title_left = Line::from(vec![Span::styled(
+                " one terminal for the whole herd ",
+                Style::default().fg(MUTED),
+            )])
             .left_aligned();
             let title_right = Line::from(vec![
                 Span::styled(format!(" {open_n} open"), Style::default().fg(GREEN)),
