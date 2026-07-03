@@ -2,7 +2,7 @@
 
 ![muster switcher](docs/screenshot.png)
 
-An agent-aware project switcher for [herdr](https://herdr.dev/).
+An agent-aware project switcher for [herdr](https://herdr.dev/) inspired by [Tmux Sesh](https://github.com/joshmedeski/sesh)
 
 Hit one key and you get a fuzzy list of your projects. The ones already running
 show up first, tagged with what their agent is doing (blocked, working, done, or
