@@ -233,8 +233,7 @@ pub fn run(rows: &[Row]) -> std::io::Result<Outcome> {
             };
             let prompt = spread(
                 vec![
-                    Span::styled("muster", Style::default().fg(AMBER).add_modifier(Modifier::BOLD)),
-                    Span::styled("> ", Style::default().fg(AMBER)),
+                    Span::styled("› ", Style::default().fg(AMBER).add_modifier(Modifier::BOLD)),
                     query_span,
                 ],
                 vec![Span::styled(
