@@ -1,4 +1,5 @@
 mod config;
+mod herdr;
 mod registry;
 mod sources;
 
