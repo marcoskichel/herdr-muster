@@ -6,10 +6,17 @@ a fuzzy list: **open** projects show their agent state (blocked / working / done
 from a fresh workspace. A project always maps to one workspace — identity is
 stored when muster creates it, not guessed from a pane's directory.
 
-## Install (local dev)
+## Install
+
+Requires a Rust toolchain — `herdr plugin install` compiles the binary from
+source via the manifest build step.
+
+    herdr plugin install marcoskichel/herdr-muster
+
+### Local dev
 
     cargo build --release
-    herdr plugin link /home/kichelm/dev/herdr-muster
+    herdr plugin link /path/to/herdr-muster   # e.g. ~/dev/herdr-muster
 
 ## Configure
 
