@@ -12,7 +12,7 @@ command = ["cargo", "build", "--release"]
 id = "picker"
 title = "Muster"
 placement = "zoomed"
-command = ["target/release/herdr-muster"]
+command = ["/home/kichelm/dev/herdr-muster/target/release/herdr-muster"]
 
 [[actions]]
 id = "open"
