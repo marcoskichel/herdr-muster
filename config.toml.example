@@ -1,0 +1,5 @@
+# Copy to the dir printed by:  herdr plugin config-dir kichel.muster
+# then rename to config.toml
+paths      = ["~/dev/api", "~/notes"]
+roots      = ["~/dev"]
+use_zoxide = true

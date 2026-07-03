@@ -1,0 +1,21 @@
+id = "kichel.muster"
+name = "Muster"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Agent-aware project switcher — muster your projects into workspaces"
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["cargo", "build", "--release"]
+
+[[panes]]
+id = "picker"
+title = "Muster"
+placement = "zoomed"
+command = ["target/release/herdr-muster"]
+
+[[actions]]
+id = "open"
+title = "Muster: pick project"
+contexts = ["workspace"]
+command = ["herdr", "plugin", "pane", "open", "--plugin", "kichel.muster", "--entrypoint", "picker"]
