@@ -43,33 +43,30 @@ command = ["cargo", "build", "--release"]
 id = "picker"
 placement = "zoomed"
 command = ["target/release/herdr-muster"]
+
+[[actions]]
+id = "open"
+title = "Muster: pick project"
+contexts = ["workspace"]
+command = ["herdr", "plugin", "pane", "open", "--plugin", "kichel.muster", "--entrypoint", "picker"]
 ```
 
-The picker is an **interactive TUI**, so it runs as a **pane** entrypoint (not a fire-and-forget action). `zoomed` placement gives it the full terminal while open; it closes on select/quit.
+The picker is an **interactive TUI**, so it runs as a **pane** entrypoint. `zoomed` placement gives it the full terminal while open. The `open` action (bound to the keybind) opens that pane. On select/quit the binary closes its own pane via `herdr pane close $HERDR_PANE_ID`.
 
 ### Keybinding (user config, documented in README)
 
-Bind `prefix+m` to open the picker pane. herdr's docs show `plugin_action` keybinds clearly; opening a **pane** entrypoint from a keybind is the one mechanism to confirm against the installed herdr version during implementation. Two forms, in order of preference:
+Bind `prefix+m` to a plugin **action** that opens the picker pane (herdr exposes no direct pane-keybind type; `plugin_action` is the confirmed mechanism):
 
 ```toml
-# Preferred — if herdr supports a direct pane keybind type:
-[[keys.command]]
-key = "prefix+m"
-type = "plugin_pane"          # VERIFY exact type name against herdr version
-command = "kichel.muster.picker"
-```
-
-```toml
-# Safe fallback — a thin action that opens the pane via CLI:
 [[keys.command]]
 key = "prefix+m"
 type = "plugin_action"
 command = "kichel.muster.open"
 ```
 
-The fallback needs a matching `[[actions]]` in the manifest whose command is
-`["herdr", "plugin", "pane", "open", "--plugin", "kichel.muster", "--entrypoint", "picker"]`
-(using `$HERDR_BIN_PATH` in practice). First implementation step verifies which form herdr accepts and drops the other.
+The manifest declares a matching `[[actions]]` `open` whose command opens the pane:
+`["herdr", "plugin", "pane", "open", "--plugin", "kichel.muster", "--entrypoint", "picker"]`.
+This returns immediately after opening; the pane then runs the picker binary.
 
 ## Configuration
 
@@ -92,12 +89,13 @@ All fields optional. Missing file → empty config → picker shows a hint to po
    - git repos found directly under each `roots` entry (one level, dir contains `.git`),
    - `zoxide query -l` output if `use_zoxide` and the `zoxide` binary is on `PATH`.
    Merge → canonicalize → dedup by absolute path → drop paths that don't exist.
-3. **Query live workspaces** (`herdr.rs`): run `$HERDR_BIN_PATH workspace list`, parse JSON, build `cwd → workspace_id` map. Annotate each candidate dir with a `● live` marker when a workspace already exists for it.
+3. **Query live workspaces** (`herdr.rs`): run `$HERDR_BIN_PATH workspace list` → `result.workspaces[].workspace_id`. `workspace list`/`get` do **not** expose cwd, so for each workspace run `pane list --workspace <id>` and take the first pane's `cwd` (`result.panes[0].cwd` = workspace root dir). Build `cwd → workspace_id` map. Annotate each candidate dir with a `● live` marker when a workspace already exists for it.
 4. **Pick** (`picker.rs`): ratatui + nucleo fuzzy matcher. Left = filtered candidate list (live-marker shown); right = **preview pane** for the highlighted entry: `git status -s` (if repo) plus a shallow directory tree.
 5. **Act** on `Enter`:
    - dir has workspace → `herdr workspace focus <id>`,
-   - else → `herdr workspace create --cwd <dir> --label <basename>`, parse `.id` from JSON, then `herdr workspace focus <new_id>`.
-6. **Exit** → pane closes, herdr shows the focused workspace.
+   - else → `herdr workspace create --cwd <dir> --label <dir> --focus`, read `result.workspace.workspace_id` from JSON (already focused).
+   Then close own picker pane: `herdr pane close $HERDR_PANE_ID`.
+6. **Exit** → picker pane closed, herdr shows the focused workspace.
 
 `Esc` / `q` / `Ctrl-C` → quit without action.
 
@@ -118,8 +116,15 @@ Design keeps side-effecting CLI calls behind a `herdr.rs` trait so `sources` and
 Injected when the pane command runs:
 - `HERDR_BIN_PATH` — path to herdr binary (used for all CLI calls; portable).
 - `HERDR_PLUGIN_CONFIG_DIR` — where `config.toml` lives.
+- `HERDR_PANE_ID` — the picker's own pane id; used to self-close after acting.
 - `HERDR_PLUGIN_STATE_DIR` — available; unused in v1 (no durable state needed).
 - `HERDR_SOCKET_PATH` — available; v1 uses CLI, not raw socket.
+
+CLI JSON shapes (herdr 0.7.1, verified):
+- `workspace list` → `{"result":{"workspaces":[{"workspace_id","label",…}]}}`
+- `pane list --workspace <id>` → `{"result":{"panes":[{"cwd","pane_id",…}]}}`
+- `workspace create … --focus` → `{"result":{"workspace":{"workspace_id"},"root_pane":{"cwd"}}}`
+- `workspace focus <id>` → `{"result":{"type":"ok"}}` (or focuses)
 
 ## Error handling
 
@@ -145,6 +150,4 @@ Injected when the pane command runs:
 
 ## Open questions
 
-- **Pane-open keybind mechanism** — confirm whether herdr exposes a direct pane keybind type or requires the action-wrapper fallback (see Keybinding). Resolved in first implementation step against the installed herdr version.
-
-All other items resolved during brainstorming (name `muster`, location `~/dev/herdr-muster`, full scope including roots-scan + preview).
+None. CLI shapes and the pane-open keybind mechanism verified against installed herdr 0.7.1. Remaining verify-in-code item: confirm `herdr pane close $HERDR_PANE_ID` cleanly tears down the picker pane (fallback: process exit).
