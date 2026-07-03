@@ -1,30 +1,40 @@
 # herdr-muster — design
 
 **Date:** 2026-07-03
-**Status:** approved
+**Status:** approved (wider scope: agent-aware switcher + identity registry)
 
 ## Summary
 
-`muster` is a plugin for [herdr](https://herdr.dev/) — the terminal agent-multiplexer. It adds a fuzzy project picker (a `sesh`-equivalent, native to herdr).
+`muster` is a plugin for [herdr](https://herdr.dev/) — the terminal
+agent-multiplexer. A keybind opens an overlay pane holding a fuzzy
+**switcher + launcher**:
 
-A keybind opens an overlay pane with a fuzzy finder over the user's project directories. On select:
+- **Open** projects (those with a live workspace) appear first, each showing
+  its agent state (blocked / working / done / idle) and agent name.
+  Blocked floats to the top — the switcher doubles as a herd-status board.
+- **Dormant** projects (known dirs with no workspace) appear below; selecting
+  one musters a new workspace and enters it.
 
-- if a herdr workspace already exists for that directory → **focus** it,
-- otherwise → **create** a workspace rooted at that directory, then focus it.
+Identity — "which workspace belongs to project P" — is **assigned at creation**
+and stored in a muster-owned registry, so a project always maps to one
+workspace even as its panes `cd` around (see ADR 0001).
 
-Name comes from the livestock-roundup verb *muster* — the picker rounds up your projects into workspaces. Fits herdr's herd motif (`herdr` + `muster` = "muster the herd").
+Name is the livestock-roundup verb *muster*: round up your projects into
+workspaces. `herdr` + `muster` = "muster the herd."
 
 ## Goals / Non-goals
 
 **Goals**
-- One keypress from anywhere in herdr to jump to any project's workspace.
-- No duplicate workspaces for the same directory (focus-existing-else-create).
-- Zero external picker dependency — native Rust TUI.
+- One keypress to jump to any project's workspace (focus if open, else create).
+- Never two workspaces for one project directory.
+- See, in the switcher, which open agent is blocked / working / done / idle.
+- Native Rust TUI, no external picker dependency.
 
 **Non-goals (v1)**
-- Renaming / deleting / managing existing workspaces (herdr CLI already does this).
-- Session (not workspace) switching.
-- Fuzzy over arbitrary filesystem — only configured sources.
+- A human "why blocked" message or elapsed timer — herdr exposes neither
+  (verified). Meta line is `<agent> · <state>` only.
+- Managing workspaces created outside muster (not in the registry).
+- Renaming workspaces, multi-select, remote sessions.
 
 ## Plugin surface (`herdr-plugin.toml`)
 
@@ -33,7 +43,7 @@ id = "kichel.muster"
 name = "Muster"
 version = "0.1.0"
 min_herdr_version = "0.7.0"
-description = "Fuzzy project picker — muster your projects into workspaces"
+description = "Agent-aware project switcher — muster your projects into workspaces"
 platforms = ["linux", "macos"]
 
 [[build]]
@@ -51,11 +61,11 @@ contexts = ["workspace"]
 command = ["herdr", "plugin", "pane", "open", "--plugin", "kichel.muster", "--entrypoint", "picker"]
 ```
 
-The picker is an **interactive TUI**, so it runs as a **pane** entrypoint. `zoomed` placement gives it the full terminal while open. The `open` action (bound to the keybind) opens that pane. On select/quit the binary closes its own pane via `herdr pane close $HERDR_PANE_ID`.
+The picker is an interactive TUI → a **pane** entrypoint. The `open` action
+(bound to a keybind) opens it. On finishing, the binary closes its own pane via
+`herdr pane close $HERDR_PANE_ID`.
 
 ### Keybinding (user config, documented in README)
-
-Bind `prefix+m` to a plugin **action** that opens the picker pane (herdr exposes no direct pane-keybind type; `plugin_action` is the confirmed mechanism):
 
 ```toml
 [[keys.command]]
@@ -64,90 +74,120 @@ type = "plugin_action"
 command = "kichel.muster.open"
 ```
 
-The manifest declares a matching `[[actions]]` `open` whose command opens the pane:
-`["herdr", "plugin", "pane", "open", "--plugin", "kichel.muster", "--entrypoint", "picker"]`.
-This returns immediately after opening; the pane then runs the picker binary.
-
 ## Configuration
 
-User-edited file at `$HERDR_PLUGIN_CONFIG_DIR/config.toml`:
+User-edited `$HERDR_PLUGIN_CONFIG_DIR/config.toml`:
 
 ```toml
-paths      = ["~/dev/api", "~/notes"]   # static entries, always listed
-roots      = ["~/dev"]                  # scanned one level deep for git repos
-use_zoxide = true                       # merge `zoxide query -l` if binary present
+paths      = ["~/dev/api", "~/notes"]   # static, always a project
+roots      = ["~/dev"]                  # scanned one level for git repos
+use_zoxide = true                       # merge `zoxide query -l` if present
 ```
 
-All fields optional. Missing file → empty config → picker shows a hint to populate it.
-`~` and `$HOME` are expanded.
+All optional. Missing file → empty config (`use_zoxide` defaults true). `~`/`$HOME` expanded.
+
+## In-picker keys
+
+| Key | Action |
+|---|---|
+| type | fuzzy filter (name + path) |
+| ↑ / ↓ | move selection |
+| Enter | **jump** — focus (open) or create+enter (dormant) |
+| Ctrl-N | **force new** — create a fresh workspace for the selected dir even if one is open (rebinds registry to the new one) |
+| Ctrl-X | **close** — close the selected open workspace, unbind it, stay in picker |
+| Esc / Ctrl-C | cancel |
+
+`●`/glyph column encodes agent state (see below).
 
 ## Data flow
 
-1. **Load config** (`config.rs`). Expand `~`. Defaults applied for missing fields.
-2. **Gather sources** (`sources.rs`):
-   - static `paths`,
-   - git repos found directly under each `roots` entry (one level, dir contains `.git`),
-   - `zoxide query -l` output if `use_zoxide` and the `zoxide` binary is on `PATH`.
-   Merge → canonicalize → dedup by absolute path → drop paths that don't exist.
-3. **Query live workspaces** (`herdr.rs`): run `$HERDR_BIN_PATH workspace list` → `result.workspaces[].workspace_id`. `workspace list`/`get` do **not** expose cwd, so for each workspace run `pane list --workspace <id>` and take the first pane's `cwd` (`result.panes[0].cwd` = workspace root dir). Build `cwd → workspace_id` map. Annotate each candidate dir with a `● live` marker when a workspace already exists for it.
-4. **Pick** (`picker.rs`): ratatui + nucleo fuzzy matcher. Left = filtered candidate list (live-marker shown); right = **preview pane** for the highlighted entry: `git status -s` (if repo) plus a shallow directory tree.
-5. **Act** on `Enter`:
-   - dir has workspace → `herdr workspace focus <id>`,
-   - else → `herdr workspace create --cwd <dir> --label <dir> --focus`, read `result.workspace.workspace_id` from JSON (already focused).
-   Then close own picker pane: `herdr pane close $HERDR_PANE_ID`.
-6. **Exit** → picker pane closed, herdr shows the focused workspace.
-
-`Esc` / `q` / `Ctrl-C` → quit without action.
+1. **Load** config (`config.rs`) and registry (`registry.rs`, `state.json`).
+2. **Gather dormant candidates** (`sources.rs`): static `paths` + git repos under
+   `roots` + `zoxide query -l` (if enabled/installed). Merge, canonicalize, dedup,
+   drop nonexistent.
+3. **Query herdr** (`herdr.rs`): `workspace list` → `[{workspace_id, label, agent_status}]`;
+   `agent list` → `[{agent, workspace_id, agent_status}]` (best-effort; empty on failure).
+4. **Reconcile** registry against live workspace ids (drop dead entries); persist if changed.
+5. **Assemble rows** (`model.rs`, pure):
+   - each live-and-registered dir → **Open** row `{workspace_id, state, agent name}`
+     (state from `workspace list`; agent name joined from `agent list` by `workspace_id`),
+   - each dormant candidate not already open → **Dormant** row,
+   - sort: open before dormant; open by state rank (blocked < working < done < idle < unknown)
+     then name; dormant by name.
+6. **Pick** (`picker.rs`): ratatui + nucleo fuzzy over the assembled rows, grouped
+   headers, glyph column, meta line `<agent> · <state>` for open rows.
+7. **Act** (`main.rs`, loop):
+   - Enter on Open → `workspace focus <id>`; on Dormant → `workspace create --cwd D --label <basename> --focus`, bind `D→new_id` in registry.
+   - Ctrl-N → create + rebind (overwrite).
+   - Ctrl-X → `workspace close <id>`, unbind, re-assemble, re-open picker.
+   - Esc → nothing.
+8. **Finish**: persist registry, `herdr pane close $HERDR_PANE_ID`.
 
 ## Modules
 
-| Module | Responsibility | Depends on | Tested |
-|---|---|---|---|
-| `config.rs` | Parse `config.toml`, expand `~`, apply defaults | toml, dirs | unit (parse + expand) |
-| `sources.rs` | Gather/merge/canonicalize/dedup candidate dirs | std fs, config | unit (pure merge/dedup) |
-| `herdr.rs` | Wrap `HERDR_BIN_PATH` CLI: `list`/`focus`/`create`; parse JSON. Trait-fronted for mocking. | serde_json | unit (JSON parse fixtures) |
-| `picker.rs` | ratatui + nucleo TUI + preview | ratatui, nucleo | manual |
-| `main.rs` | Read env, wire modules, exit codes | all | — |
+| Module | Responsibility | Tested |
+|---|---|---|
+| `config.rs` | Parse `config.toml`, expand `~`, defaults | unit |
+| `sources.rs` | Gather/canonicalize/dedup dormant candidate dirs | unit (pure) |
+| `registry.rs` | `state.json` load/save; `bind`/`unbind`/`workspace_for`/`reconcile(live_ids)` | unit (pure + tmpfile IO) |
+| `herdr.rs` | `Herdr` trait + `CliHerdr`; JSON parsers for `workspace list`, `agent list`, `create`; `AgentState` | unit (parse fixtures + mock) |
+| `model.rs` | `Row`/`Kind`/`AgentState`, `assemble(...)`, sort | unit (pure) |
+| `picker.rs` | ratatui + nucleo grouped switcher TUI; returns `Outcome` | manual |
+| `main.rs` | env wiring, act-loop, self-close | manual |
 
-Design keeps side-effecting CLI calls behind a `herdr.rs` trait so `sources` and selection logic stay pure and unit-testable.
+Side-effecting herdr calls stay behind the `Herdr` trait; `assemble`, `sources`,
+`registry`, and parsers are pure/mocked and unit-tested. The picker returns an
+`Outcome { Cancel | Jump(idx) | ForceNew(idx) | Close(idx) }`; `main` owns all
+side effects and the close→refresh loop, keeping the TUI decoupled.
 
 ## Runtime environment (from herdr)
 
-Injected when the pane command runs:
-- `HERDR_BIN_PATH` — path to herdr binary (used for all CLI calls; portable).
-- `HERDR_PLUGIN_CONFIG_DIR` — where `config.toml` lives.
-- `HERDR_PANE_ID` — the picker's own pane id; used to self-close after acting.
-- `HERDR_PLUGIN_STATE_DIR` — available; unused in v1 (no durable state needed).
-- `HERDR_SOCKET_PATH` — available; v1 uses CLI, not raw socket.
+- `HERDR_BIN_PATH` — herdr binary for all CLI calls (fallback literal `"herdr"`).
+- `HERDR_PLUGIN_CONFIG_DIR` — holds `config.toml`.
+- `HERDR_PLUGIN_STATE_DIR` — holds `state.json` (the registry).
+- `HERDR_PANE_ID` — the picker's own pane; used to self-close.
 
-CLI JSON shapes (herdr 0.7.1, verified):
-- `workspace list` → `{"result":{"workspaces":[{"workspace_id","label",…}]}}`
-- `pane list --workspace <id>` → `{"result":{"panes":[{"cwd","pane_id",…}]}}`
-- `workspace create … --focus` → `{"result":{"workspace":{"workspace_id"},"root_pane":{"cwd"}}}`
-- `workspace focus <id>` → `{"result":{"type":"ok"}}` (or focuses)
+### CLI JSON shapes (herdr 0.7.1, verified)
+
+- `workspace list` → `{"result":{"workspaces":[{"workspace_id","label","agent_status"}]}}`
+- `agent list` → `{"result":{"agents":[{"agent","agent_status","workspace_id","pane_id","cwd",…}]}}`
+  (join key = `workspace_id`; `agent` is the name; **no** message/elapsed fields exist)
+- `agent_status` ∈ `idle | working | blocked | done | unknown`
+- `workspace create --cwd P --label L --focus` → `{"result":{"workspace":{"workspace_id"},"root_pane":{"cwd"}}}`
+- `workspace focus <id>` → `{"result":{"type":"ok"}}`
+- `workspace close <id>` → `{"result":{"type":"ok"}}`
+- `pane close <id>` → `{"result":{"type":"ok"}}`
 
 ## Error handling
 
 | Case | Behavior |
 |---|---|
-| `zoxide` not installed / `use_zoxide=false` | Skip that source silently. |
-| `roots` entry missing | Skip, continue. |
-| `workspace list` fails / unparsable | Proceed with empty live-map → everything takes the create path. |
-| No candidate dirs | Show hint: "no projects — edit `<config path>`". |
-| Malformed `config.toml` | Print error to stderr, exit nonzero (herdr logs it). |
-| `workspace create` fails | Show error in pane, stay open. |
+| `zoxide` absent / disabled | skip that source silently |
+| `roots` entry missing | skip |
+| `workspace list` fails | treat as no live workspaces → all projects dormant (still usable) |
+| `agent list` fails | omit agent names; glyph/state still from `workspace list` |
+| `state.json` missing/corrupt | start empty registry (worst case: one duplicate workspace) |
+| no candidate projects | hint: "no projects — edit `<config path>`" |
+| malformed `config.toml` | stderr + nonzero exit (herdr logs it) |
+| `workspace create` fails | show error in pane, stay open |
 
 ## Testing
 
-- `sources`: merge + dedup + nonexistent-path filtering (pure, table-driven).
-- `herdr`: parse `workspace list` and `workspace create` JSON from fixtures; verify focus/create dispatch via mock trait.
-- `config`: `~`/`$HOME` expansion, defaults for missing fields, malformed-file error.
-- TUI (`picker`): manual verification.
+- `config`: `~` expansion, defaults, malformed error.
+- `sources`: merge/dedup/nonexistent filtering (pure).
+- `registry`: bind/unbind/workspace_for, reconcile prunes dead ids, round-trip save/load.
+- `herdr`: parse `workspace list` / `agent list` / `create` fixtures; mock-driven trait dispatch.
+- `model`: `assemble` open/dormant classification, agent-name join, blocked-first sort.
+- `picker`/`main`: manual.
 
 ## Dependencies
 
-`ratatui`, `nucleo`, `serde` + `serde_json`, `toml`, `dirs`. No external `fzf`/`zoxide` *required* (zoxide optional at runtime).
+`ratatui`, `crossterm`, `nucleo-matcher`, `serde`+`serde_json`, `toml`, `dirs`;
+dev `tempfile`. No external `fzf`; `zoxide` optional at runtime.
 
 ## Open questions
 
-None. CLI shapes and the pane-open keybind mechanism verified against installed herdr 0.7.1. Remaining verify-in-code item: confirm `herdr pane close $HERDR_PANE_ID` cleanly tears down the picker pane (fallback: process exit).
+None. All CLI shapes verified against herdr 0.7.1 (including the live `agent list`
+schema). Identity mechanism recorded in ADR 0001. Verify-in-code item:
+`herdr pane close $HERDR_PANE_ID` tears the picker pane down cleanly (fallback:
+process exit).
