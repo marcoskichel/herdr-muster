@@ -1,5 +1,7 @@
 # muster
 
+![muster switcher](docs/screenshot.png)
+
 Agent-aware project switcher for [herdr](https://herdr.dev/). One keypress opens
 a fuzzy list: **open** projects show their agent state (blocked / working / done
 / idle) with the blocked ones on top; **dormant** projects sit below, one press
